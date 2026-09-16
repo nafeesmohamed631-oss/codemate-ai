@@ -1,0 +1,1 @@
+[{"source": "c_manual.c", "language": "C", "text": "#include <stdio.h>\nint main() {\n    printf(\"Hello\");\n    return 0;\n}", "start_line": 1, "end_line": 5}]
