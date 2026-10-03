@@ -3,7 +3,7 @@ from pydantic_settings import BaseSettings
 class Settings(BaseSettings):
     database_url: str = "sqlite:///./codemate.db"
     jwt_secret: str = "change-this-in-production"
-    jwt_expire_minutes: int = 1440
+    jwt_expire_minutes: int = 43200
     upload_dir: str = "./storage"
     max_file_mb: int = 25
     llm_base_url: str = "https://api.openai.com/v1"

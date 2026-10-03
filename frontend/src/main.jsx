@@ -41,7 +41,21 @@ async function api(path, options = {}) {
     ...options,
     headers: { ...headers, ...authHeader() },
   });
-  if (!res.ok) throw new Error(await res.text());
+  if (res.status === 401) {
+    localStorage.removeItem("cm_token");
+    localStorage.removeItem("cm_user_name");
+    window.dispatchEvent(new Event("cm_logout"));
+    throw new Error("Session expired or invalid token. Please log in again.");
+  }
+  if (!res.ok) {
+    try {
+      const errJson = await res.json();
+      throw new Error(errJson.detail || JSON.stringify(errJson));
+    } catch (e) {
+      if (e.message && !e.message.startsWith("{")) throw e;
+      throw new Error(await res.text());
+    }
+  }
   return res.json();
 }
 
@@ -518,12 +532,16 @@ function App() {
           </div>
 
           <div className="upload-area">
-            <div className="upload-dropzone">
+            <div
+              className="upload-dropzone"
+              onClick={() => !uploading && fileInputRef.current && fileInputRef.current.click()}
+              style={{ cursor: uploading ? "not-allowed" : "pointer" }}
+            >
               <Upload size={48} />
               <h3>Upload your PDF or Code file</h3>
               <p>.pdf .c .cpp .java .py .html .css .js .jsx .cs .docx .zip</p>
 
-              {/* Hidden file input opened ONLY by the Upload Files button */}
+              {/* Hidden file input */}
               <input
                 ref={fileInputRef}
                 type="file"
@@ -537,7 +555,10 @@ function App() {
                 <button
                   type="button"
                   className="upload-main-btn"
-                  onClick={() => fileInputRef.current && fileInputRef.current.click()}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    fileInputRef.current && fileInputRef.current.click();
+                  }}
                 >
                   <Upload size={18} />
                   Upload Files
@@ -929,6 +950,13 @@ function App() {
 
 function Root() {
   const [token, setToken] = useState(localStorage.getItem("cm_token"));
+
+  useEffect(() => {
+    const handleLogout = () => setToken(null);
+    window.addEventListener("cm_logout", handleLogout);
+    return () => window.removeEventListener("cm_logout", handleLogout);
+  }, []);
+
   return token ? <App /> : <Login done={() => setToken(localStorage.getItem("cm_token"))} />;
 }
 

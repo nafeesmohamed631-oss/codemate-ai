@@ -1,0 +1,1 @@
+[{"source": "test_resilience2.c", "language": "C", "text": "#include <stdio.h>\nint main() { return 0; }", "start_line": 1, "end_line": 2}]
