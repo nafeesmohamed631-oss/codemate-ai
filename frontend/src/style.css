@@ -908,3 +908,169 @@ main.wizard {
     flex-direction: column;
   }
 }
+
+/* Status Badges */
+.badge-success {
+  background: rgba(16, 185, 129, 0.15) !important;
+  color: #10b981 !important;
+  border: 1px solid rgba(16, 185, 129, 0.3) !important;
+}
+
+.badge-danger {
+  background: rgba(239, 68, 68, 0.15) !important;
+  color: #ef4444 !important;
+  border: 1px solid rgba(239, 68, 68, 0.3) !important;
+}
+
+.badge-warning {
+  background: rgba(245, 158, 11, 0.15) !important;
+  color: #f59e0b !important;
+  border: 1px solid rgba(245, 158, 11, 0.3) !important;
+}
+
+/* LLM Configuration Modal */
+.llm-modal-box {
+  width: min(620px, 94vw);
+  background: #111621;
+  border: 1px solid #293143;
+  color: white;
+  border-radius: 18px;
+  padding: 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.6);
+  max-height: 90vh;
+  overflow-y: auto;
+}
+
+.llm-provider-tabs {
+  display: flex;
+  gap: 8px;
+  background: #090c14;
+  padding: 5px;
+  border-radius: 12px;
+  border: 1px solid #222938;
+}
+
+.llm-provider-tab {
+  flex: 1;
+  text-align: center;
+  padding: 9px 12px;
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 600;
+  color: #8f9bb0;
+  transition: all 0.2s ease;
+  user-select: none;
+}
+
+.llm-provider-tab:hover {
+  color: white;
+}
+
+.llm-provider-tab.active {
+  background: #7667f7;
+  color: white;
+  box-shadow: 0 2px 8px rgba(118, 103, 247, 0.4);
+}
+
+.llm-field-group {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.llm-field-group label {
+  font-size: 13px;
+  font-weight: 600;
+  color: #cbd5e1;
+}
+
+.llm-field-group input,
+.llm-field-group select {
+  background: #090c14;
+  border: 1px solid #222938;
+  border-radius: 8px;
+  padding: 10px 12px;
+  color: white;
+  font-size: 14px;
+  outline: none;
+  font-family: inherit;
+}
+
+.llm-field-group input:focus,
+.llm-field-group select:focus {
+  border-color: #7667f7;
+}
+
+.llm-key-wrapper {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.llm-key-wrapper input {
+  width: 100%;
+  padding-right: 42px;
+}
+
+.llm-key-wrapper button.eye-btn {
+  position: absolute;
+  right: 6px;
+  background: transparent;
+  border: none;
+  color: #8f9bb0;
+  padding: 6px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+}
+
+.llm-key-wrapper button.eye-btn:hover {
+  color: white;
+}
+
+.llm-status-card {
+  padding: 12px 16px;
+  border-radius: 10px;
+  font-size: 13px;
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+}
+
+.llm-status-card.success {
+  background: rgba(16, 185, 129, 0.12);
+  border: 1px solid rgba(16, 185, 129, 0.3);
+  color: #34d399;
+}
+
+.llm-status-card.error {
+  background: rgba(239, 68, 68, 0.12);
+  border: 1px solid rgba(239, 68, 68, 0.3);
+  color: #f87171;
+}
+
+.llm-status-card.info {
+  background: rgba(99, 102, 241, 0.12);
+  border: 1px solid rgba(99, 102, 241, 0.3);
+  color: #a5b4fc;
+}
+
+.llm-hint-box {
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px dashed #293143;
+  border-radius: 8px;
+  padding: 10px 14px;
+  font-size: 12px;
+  color: #94a3b8;
+  line-height: 1.5;
+}
+
+.llm-hint-box a {
+  color: #8b7cff;
+  text-decoration: underline;
+  cursor: pointer;
+}

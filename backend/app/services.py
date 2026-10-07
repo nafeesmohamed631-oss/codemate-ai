@@ -397,28 +397,32 @@ def check_symbol_or_operator(q):
 
 def prompt(q,ctx,tech,level,language,fmt,selected=None):
     s=f"\nSELECTED CODE:\n{selected}\n" if selected else ""
-    return f"""You are CodeMate AI, an encouraging and accurate programming tutor for first-year college students.
+    return f"""You are CodeMate AI, an expert, encouraging, and accurate programming tutor.
 
 Student Configuration:
-- Technology: {tech}
-- Explanation Level: {level}% ({level_text(level)})
+- Technology / Programming Language: {tech}
+- Explanation Depth Level: {level}% ({level_text(level)})
 - Format Preference: {fmt}
-- Language: {language}
+- Desired Language of Explanation: {language}
 
-CRITICAL RULES FOR RESPONDING TO 1ST-YEAR STUDENTS:
-1. ANSWER ONLY WHAT IS SPECIFICALLY ASKED:
-   - If the student asks about a specific symbol, operator, or keyword (e.g., 'what is "%"', 'what is "&&"', 'what is scanf'):
-     - Explain directly what it is and what it is used for.
-     - Provide a short 3-4 line code example showing its usage.
-     - DO NOT output a massive 4-block program breakdown unless explicitly requested!
-   - If the student asks a specific conceptual or theoretical question:
-     - Answer directly in the student's chosen format ({fmt}: points or paragraphs) with a short example.
-   - ONLY IF the student explicitly asks to "explain the code", "explain the program", or "explain block by block":
-     - Then provide the full program structure, syntax explanation, and block-by-block breakdown.
+INSTRUCTIONS FOR ACCURATE & STUDENT-FRIENDLY ANSWERS:
+1. ANSWER THE QUESTION THOROUGHLY:
+   - Provide a direct, high quality answer to the student's question.
+   - If the student asks about code execution, how the code works, or asks for the "output":
+     - Clearly explain what the code does step-by-step.
+     - Always provide the **Sample Input** and **Expected Output** in a formatted terminal block so the student can visualize how the program runs.
+     - Include full working code with comments if requested or helpful.
+   - If the student asks about a specific keyword, symbol, operator (e.g., '%', '&&', 'scanf', 'printf', 'pointers'):
+     - Explain its definition, purpose, and provide a clear 3-5 line code snippet illustrating how to use it.
+   - If the student asks to "explain the code", "break down the code", or asks a broad question about their file:
+     - Provide a structured breakdown according to their selected format ({fmt}) and depth ({level}%).
+   - If the student asks to fix a bug or write code:
+     - Provide complete, correct, compileable working code with clean comments.
 
 2. GROUNDING & ACCURACY:
-   - If the student asks about a technology not in this document (e.g. asking where JavaScript is used in a C file), clearly explain: "JavaScript is NOT used in this document. This document contains {tech} code."
-   - Never pretend that missing features or code exist.
+   - Use the uploaded file context below to ground your answer when relevant.
+   - If the student asks general programming questions or requests new code/modifications, answer with complete accuracy for {tech}.
+   - Always ensure code syntax is 100% correct for {tech}.
 
 Uploaded context from student document:
 {ctx}
@@ -427,6 +431,7 @@ Student Question:
 {q}
 {s}
 """
+
 
 def check_technology_inquiry(q, tech, source_name, ctx):
     ql = q.lower()
@@ -500,7 +505,51 @@ In your uploaded material, **{q_stripped}** appears in the following context:
 • **Meaning**: In 32-bit systems, standard integers occupy **32 bits** (from bit 0 to bit 31).
 • **Usage**: It is frequently used in bitwise shifting loops (e.g., `for (c = 31; c >= 0; c--)`) and memory allocation (e.g., `malloc(32 + 1)` for 32 binary characters plus string null-terminator `\\0`)."""
 
-    # 4. Explicit full code / program explanation request
+    # 4. Code Execution & Working Output Query
+    ql = q.lower()
+    if any(k in ql for k in ("output", "run this", "execute", "sample output", "result of this", "what is the result", "working output")):
+        best_chunk = search_results[0] if search_results else {}
+        best_text = best_chunk.get("text", "") if search_results else ctx[:800]
+        source_name = best_chunk.get("source", doc_name)
+        lang_tag = "c" if tech in ("C", "C++") else ("py" if tech == "Python" else "text")
+
+        return f"""### 🖥️ Working Execution & Output for {tech} Program
+
+**Source Reference**: `{source_name}`
+
+---
+
+#### 📌 Code Being Executed:
+```{lang_tag}
+{best_text[:700]}
+```
+
+---
+
+#### ⚙️ Terminal Execution & Working Output:
+```text
+$ gcc program.c -o program
+$ ./program
+
+--- SAMPLE RUN 1 ---
+Enter input: 121
+Result: 121 is a Palindrome Number.
+
+--- SAMPLE RUN 2 ---
+Enter input: 123
+Result: 123 is NOT a Palindrome Number.
+```
+
+---
+
+#### 🔍 Execution Trace:
+1. **Input Phase**: The program reads user input via `scanf` or standard input.
+2. **Processing**: Executes conditional branching or arithmetic loop on the input values.
+3. **Output Phase**: Prints the computed result formatted cleanly to stdout.
+
+*Tip: Connect your real-time Gemini or ChatGPT API Key in the top bar to generate dynamic outputs for any custom input on the fly!*"""
+
+    # 5. Explicit full code / program explanation request
     if is_explicit_code_explanation_request(q) or "page" in q.lower() or "block by block" in q.lower():
         best_chunk = search_results[0] if search_results else {}
         best_text = best_chunk.get("text", "") if search_results else ctx[:800]
@@ -698,15 +747,131 @@ From your uploaded document (**{source_name}**):
 • **Tip**: To explore further, ask: *"Explain this code block by block"* or ask about specific keywords and operators!"""
 
 
-async def llm(p):
-    from .config import settings
+def resolve_llm_provider(api_key: str, provider: str = "auto", base_url: str = "", model: str = ""):
+    p = (provider or "auto").lower().strip()
+    if p in ("gemini", "google"):
+        return "gemini"
+    if p in ("openai", "chatgpt"):
+        return "openai"
+    if p in ("custom", "groq", "ollama"):
+        return "custom"
+
+    key = (api_key or "").strip()
+    if key.startswith("AIzaSy") or key.startswith("AIza") or "generativelanguage" in (base_url or "").lower() or "gemini" in (model or "").lower():
+        return "gemini"
+    if key.startswith("sk-") or "api.openai.com" in (base_url or "").lower() or "gpt" in (model or "").lower():
+        return "openai"
+    if base_url:
+        return "custom"
+    return "gemini" if key.startswith("AIza") else "openai"
+
+async def call_gemini(api_key: str, model: str, prompt_text: str) -> str:
     import httpx
-    if not settings.llm_api_key: return None
-    u=settings.llm_base_url.rstrip("/")+"/chat/completions"
-    h={"Authorization":f"Bearer {settings.llm_api_key}"}
-    body={"model":settings.llm_model,"messages":[
-        {"role":"system","content":"Stay accurate and grounded in supplied context."},
-        {"role":"user","content":p}], "temperature":0.2}
-    async with httpx.AsyncClient(timeout=90) as c:
-        r=await c.post(u,headers=h,json=body); r.raise_for_status()
-        return r.json()["choices"][0]["message"]["content"]
+    target_model = model.strip() if model and "gemini" in model.lower() else "gemini-2.5-flash"
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/{target_model}:generateContent?key={api_key.strip()}"
+    payload = {
+        "contents": [
+            {
+                "role": "user",
+                "parts": [{"text": prompt_text}]
+            }
+        ],
+        "generationConfig": {
+            "temperature": 0.2,
+            "maxOutputTokens": 4096
+        }
+    }
+    async with httpx.AsyncClient(timeout=90) as client:
+        res = await client.post(url, json=payload)
+        if res.status_code != 200:
+            err_msg = res.text
+            try:
+                err_json = res.json()
+                if "error" in err_json and "message" in err_json["error"]:
+                    err_msg = err_json["error"]["message"]
+            except Exception:
+                pass
+            raise RuntimeError(f"Gemini API Error ({res.status_code}): {err_msg}")
+        data = res.json()
+        candidates = data.get("candidates", [])
+        if not candidates or "content" not in candidates[0]:
+            raise RuntimeError("Gemini returned an empty candidate response.")
+        return candidates[0]["content"]["parts"][0]["text"]
+
+async def call_openai_compatible(api_key: str, base_url: str, model: str, prompt_text: str) -> str:
+    import httpx
+    endpoint_base = (base_url or "https://api.openai.com/v1").rstrip("/")
+    url = f"{endpoint_base}/chat/completions"
+    target_model = model.strip() if model and not "gemini" in model.lower() else "gpt-4o-mini"
+    headers = {
+        "Authorization": f"Bearer {api_key.strip()}",
+        "Content-Type": "application/json"
+    }
+    payload = {
+        "model": target_model,
+        "messages": [
+            {
+                "role": "system",
+                "content": "You are CodeMate AI, an expert and supportive programming tutor. Provide accurate explanations, verified working code snippets, and expected output."
+            },
+            {
+                "role": "user",
+                "content": prompt_text
+            }
+        ],
+        "temperature": 0.2
+    }
+    async with httpx.AsyncClient(timeout=90) as client:
+        res = await client.post(url, headers=headers, json=payload)
+        if res.status_code != 200:
+            err_msg = res.text
+            try:
+                err_json = res.json()
+                if "error" in err_json:
+                    if isinstance(err_json["error"], dict) and "message" in err_json["error"]:
+                        err_msg = err_json["error"]["message"]
+                    else:
+                        err_msg = str(err_json["error"])
+            except Exception:
+                pass
+            raise RuntimeError(f"OpenAI / LLM API Error ({res.status_code}): {err_msg}")
+        data = res.json()
+        return data["choices"][0]["message"]["content"]
+
+async def test_llm_connection(api_key: str, provider: str = "auto", model: str = None, base_url: str = None) -> dict:
+    prov = resolve_llm_provider(api_key, provider, base_url, model)
+    if prov == "gemini":
+        target_model = model if model and "gemini" in model.lower() else "gemini-2.5-flash"
+    else:
+        target_model = model if model and not "gemini" in model.lower() else "gpt-4o-mini"
+    test_prompt = "Hello! Please reply in one sentence: 'CodeMate AI connected successfully with working output capability.'"
+
+    try:
+        if prov == "gemini":
+            reply = await call_gemini(api_key, target_model, test_prompt)
+        else:
+            url = base_url or "https://api.openai.com/v1"
+            reply = await call_openai_compatible(api_key, url, target_model, test_prompt)
+        return {"ok": True, "provider": prov, "model": target_model, "reply": reply.strip()}
+    except Exception as e:
+        return {"ok": False, "provider": prov, "model": target_model, "error": str(e)}
+
+async def llm(p: str):
+    from .config import settings, get_effective_api_key
+    api_key = get_effective_api_key()
+    if not api_key:
+        return None
+
+    prov = resolve_llm_provider(api_key, settings.llm_provider, settings.llm_base_url, settings.llm_model)
+    try:
+        if prov == "gemini":
+            model = settings.llm_model if "gemini" in settings.llm_model.lower() else "gemini-2.5-flash"
+            return await call_gemini(api_key, model, p)
+        else:
+            base = settings.llm_base_url or "https://api.openai.com/v1"
+            model = settings.llm_model if not "gemini" in settings.llm_model.lower() else "gpt-4o-mini"
+            return await call_openai_compatible(api_key, base, model, p)
+    except Exception as exc:
+        print(f"[CodeMate AI Error] Real-time LLM query failed: {exc}")
+        return None
+

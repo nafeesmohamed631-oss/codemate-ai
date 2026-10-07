@@ -1,0 +1,6 @@
+@echo off
+echo Starting CodeMate AI Backend...
+start cmd /k "cd backend && .venv\Scripts\activate && uvicorn main:app --reload"
+
+echo Starting CodeMate AI Frontend...
+start cmd /k "cd frontend && npm run dev"

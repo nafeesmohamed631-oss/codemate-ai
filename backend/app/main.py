@@ -1,24 +1,41 @@
 from pathlib import Path
-import uuid, json
+import uuid, json, asyncio
 from fastapi import FastAPI, Depends, UploadFile, File, Form, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
 from .database import Base, engine, get_db
 from .models import User, Project, ProjectFile, KnowledgePreference, ChatSession, ChatMessage
 from typing import Optional
-from .schemas import AuthIn, RegisterIn, PreferenceIn, ChatIn
+from .schemas import AuthIn, RegisterIn, PreferenceIn, ChatIn, LLMConfigIn, LLMTestIn
 from .security import hash_password, verify_password, token, current_user
-from .services import extract, build_index, search, prompt, llm, detect_technologies, generate_local_tutor_response
-from .config import settings
+from .services import extract, build_index, search, prompt, llm, detect_technologies, generate_local_tutor_response, test_llm_connection, get_model, resolve_llm_provider
+from .config import settings, save_llm_settings
 
 Base.metadata.create_all(bind=engine)
 Path(settings.upload_dir).mkdir(parents=True,exist_ok=True)
 app=FastAPI(title="CodeMate AI API")
-app.add_middleware(CORSMiddleware,allow_origins=["http://localhost:5173","http://127.0.0.1:5173"],
-                   allow_credentials=True,allow_methods=["*"],allow_headers=["*"])
+
+# Robust CORS middleware allowing any local development port or network host
+app.add_middleware(
+    CORSMiddleware,
+    allow_origin_regex=r"^https?://.*",
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+@app.on_event("startup")
+async def startup_event():
+    # Warm up SentenceTransformer model asynchronously in background thread
+    try:
+        loop = asyncio.get_event_loop()
+        loop.run_in_executor(None, get_model)
+    except Exception as e:
+        print(f"Warning warming up embedding model: {e}")
 
 @app.get("/api/health")
-def health(): return {"status":"ok"}
+def health(): return {"status":"ok", "llm_configured": bool((settings.llm_api_key or "").strip()), "llm_model": settings.llm_model}
+
 
 @app.post("/api/auth/register")
 def register(d:RegisterIn,db:Session=Depends(get_db)):
@@ -170,3 +187,54 @@ async def document_preview(file:UploadFile=File(...),u=Depends(current_user)):
     try: kind,items=extract(file.filename,data)
     except ValueError as e: raise HTTPException(400,str(e))
     return {"name":file.filename,"kind":kind,"items":[{"source":x[0],"type":x[2],"characters":len(x[1])} for x in items]}
+
+@app.get("/api/llm/config")
+def get_llm_config():
+    from .config import get_effective_api_key
+    api_key = get_effective_api_key()
+    is_configured = bool(api_key)
+    masked_key = ""
+    if is_configured:
+        if len(api_key) > 8:
+            masked_key = f"{api_key[:4]}...{api_key[-4:]}"
+        else:
+            masked_key = "******"
+    
+    prov = resolve_llm_provider(api_key, settings.llm_provider, settings.llm_base_url, settings.llm_model)
+    return {
+        "provider": settings.llm_provider,
+        "resolved_provider": prov,
+        "model": settings.llm_model,
+        "base_url": settings.llm_base_url,
+        "is_configured": is_configured,
+        "masked_key": masked_key
+    }
+
+@app.post("/api/llm/config")
+def set_llm_config(d: LLMConfigIn):
+    save_llm_settings(
+        provider=d.provider,
+        api_key=d.api_key if d.api_key is not None else settings.llm_api_key,
+        model=d.model if d.model is not None else settings.llm_model,
+        base_url=d.base_url if d.base_url is not None else settings.llm_base_url
+    )
+    return get_llm_config()
+
+@app.post("/api/llm/test")
+async def test_llm(d: LLMTestIn):
+    key_to_test = d.api_key if d.api_key is not None and d.api_key.strip() else settings.llm_api_key
+    if not key_to_test or not key_to_test.strip():
+        raise HTTPException(400, "No API key provided to test. Please enter an API key.")
+    
+    provider_to_test = d.provider or settings.llm_provider
+    model_to_test = d.model or settings.llm_model
+    base_url_to_test = d.base_url or settings.llm_base_url
+    
+    result = await test_llm_connection(
+        api_key=key_to_test,
+        provider=provider_to_test,
+        model=model_to_test,
+        base_url=base_url_to_test
+    )
+    return result
+

@@ -24,3 +24,16 @@ class ChatIn(BaseModel):
     language: str = "English"
     format: str = "paragraph_and_points"
     selected_code: Optional[str] = None
+
+class LLMConfigIn(BaseModel):
+    provider: Optional[str] = "auto"
+    api_key: Optional[str] = None
+    model: Optional[str] = None
+    base_url: Optional[str] = None
+
+class LLMTestIn(BaseModel):
+    provider: Optional[str] = "auto"
+    api_key: Optional[str] = None
+    model: Optional[str] = None
+    base_url: Optional[str] = None
+
