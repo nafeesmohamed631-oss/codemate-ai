@@ -368,26 +368,143 @@ scanf("%d", &n);"""
     }
 }
 
+ORDINALS = {
+    "1st": 1, "first": 1, "one": 1,
+    "2nd": 2, "second": 2, "two": 2,
+    "3rd": 3, "third": 3, "three": 3,
+    "4th": 4, "fourth": 4, "four": 4,
+    "5th": 5, "fifth": 5, "five": 5,
+    "6th": 6, "sixth": 6, "six": 6,
+    "7th": 7, "seventh": 7, "seven": 7,
+    "8th": 8, "eighth": 8, "eight": 8,
+    "9th": 9, "ninth": 9, "nine": 9,
+    "10th": 10, "tenth": 10, "ten": 10,
+    "11th": 11, "eleventh": 11, "eleven": 11,
+    "12th": 12, "twelfth": 12, "twelve": 12,
+    "13th": 13, "thirteenth": 13, "thirteen": 13,
+    "14th": 14, "fourteenth": 14, "fourteen": 14,
+    "15th": 15, "fifteenth": 15, "fifteen": 15,
+    "16th": 16, "sixteenth": 16, "sixteen": 16,
+    "17th": 17, "seventeenth": 17, "seventeen": 17,
+    "18th": 18, "eighteenth": 18, "eighteen": 18,
+    "19th": 19, "nineteenth": 19, "nineteen": 19,
+    "20th": 20, "twentieth": 20, "twenty": 20,
+    "21st": 21, "22nd": 22, "23rd": 23, "24th": 24, "25th": 25,
+    "26th": 26, "27th": 27, "28th": 28, "29th": 29, "30th": 30
+}
+
+def extract_target(q: str):
+    """Extract explicit target question number, program number, or page number from user query."""
+    ql = q.lower().strip()
+    
+    # Check '3rd question', '3rd program', '3rd problem', '3rd experiment', '3rd exercise'
+    m = re.search(r'(\d+)(?:st|nd|rd|th)?\s*(?:question|program|problem|experiment|exercise|prog|code|algo|algorithm|topic|concept|item)', ql)
+    if m:
+        return int(m.group(1)), "question"
+    
+    # Check 'question 3', 'program 3', 'problem 3', 'experiment 3', 'q3', 'p3'
+    m = re.search(r'(?:question|program|problem|experiment|exercise|prog|code|q|p)\s*#?\s*(\d+)', ql)
+    if m:
+        return int(m.group(1)), "question"
+    
+    # Check words like 'third question', 'first program'
+    for word, num in ORDINALS.items():
+        if re.search(rf'\b{word}\s+(?:question|program|problem|experiment|exercise|prog|code|topic|concept)\b', ql):
+            return num, "question"
+        if ql == f"{word} question" or ql == f"{word} program" or ql == f"{word} problem":
+            return num, "question"
+
+    # Check pages: 'page 3', '3rd page', 'page-3', 'pg 3'
+    m = re.search(r'(?:#page-|page-|page\s+|pg\s+)(\d+)', ql)
+    if m:
+        return int(m.group(1)), "page"
+    m = re.search(r'(\d+)(?:st|nd|rd|th)?\s+page', ql)
+    if m:
+        return int(m.group(1)), "page"
+    
+    for word, num in ORDINALS.items():
+        if re.search(rf'\b{word}\s+page\b', ql):
+            return num, "page"
+            
+    return None, None
+
+def find_question_in_project_files(project_files, q_num: int):
+    """Accurately isolate and extract the exact question/program from project files."""
+    candidates = []
+    
+    strict_patterns = [
+        rf'^\s*{q_num}\s*\)\s*([^\n\r]+)',
+        rf'^\s*{q_num}\s*\.\s*([^\n\r]+)',
+        rf'^\s*(?:question|program|experiment|problem|exercise)\s*#?\s*{q_num}\b[^\n\r]*',
+        rf'^\s*{q_num}\s*[\-–:]\s*([^\n\r]+)'
+    ]
+    
+    for f in project_files:
+        lines = f.content.splitlines()
+        for idx, line in enumerate(lines):
+            for pat in strict_patterns:
+                if re.search(pat, line.strip(), re.IGNORECASE):
+                    # Found start of target question!
+                    next_q_num = q_num + 1
+                    end_idx = len(lines)
+                    for j in range(idx + 1, len(lines)):
+                        next_pat = rf'^\s*(?:{next_q_num}\s*[\)\.\-–:]|(?:question|program|experiment|problem)\s*#?\s*{next_q_num}\b)'
+                        if re.search(next_pat, lines[j].strip(), re.IGNORECASE):
+                            end_idx = j
+                            break
+                    
+                    snippet = '\n'.join(lines[idx:min(end_idx, idx + 50)])
+                    candidates.append({
+                        "source": f.relative_path,
+                        "title": line.strip(),
+                        "text": snippet.strip(),
+                        "start_line": idx + 1,
+                        "end_line": idx + len(snippet.splitlines()),
+                        "score": 10.0
+                    })
+                    break
+    
+    if not candidates:
+        anywhere_patterns = [
+            rf'\b{q_num}\s*\)\s*([^\n\r]+)',
+            rf'\b{q_num}\s*\.\s*([^\n\r]+)',
+            rf'\b(?:question|program|experiment|problem|exercise)\s*#?\s*{q_num}\b[^\n\r]*'
+        ]
+        for f in project_files:
+            for pat in anywhere_patterns:
+                m = re.search(pat, f.content, re.IGNORECASE)
+                if m:
+                    start_pos = m.start()
+                    snippet = f.content[start_pos:start_pos + 1500]
+                    candidates.append({
+                        "source": f.relative_path,
+                        "title": m.group(0).strip(),
+                        "text": snippet.strip(),
+                        "start_line": 1,
+                        "end_line": len(snippet.splitlines()),
+                        "score": 8.0
+                    })
+                    break
+                    
+    return candidates
+
 def is_explicit_code_explanation_request(q):
     ql = q.lower()
     triggers = [
         "explain the code", "explain code", "explain program", "explain the program",
         "block by block", "line by line", "break down the code", "break down this code",
         "walk through the code", "explain this program", "explain hello world",
-        "explain factorial", "explain odd or even", "explain palindrome"
+        "explain factorial", "explain odd or even", "explain palindrome", "structure and syntax"
     ]
     return any(t in ql for t in triggers)
 
 def check_symbol_or_operator(q):
-    # Match quoted or unquoted symbols
-    # Look for quotes first: "%", "&&", "==", etc.
     quoted = re.findall(r'["\']([^"\']+)["\']', q)
     for s in quoted:
         s_clean = s.strip()
         if s_clean in OPERATOR_GUIDE:
             return s_clean
 
-    # Look for direct tokens in question
     tokens = ["&&", "||", "==", "!=", "++", "--", "%d", "%f", "%c", "%s", "%", "&", "*", "!", "=", "sizeof", "printf", "scanf"]
     ql = f" {q.lower()} "
     for t in tokens:
@@ -395,8 +512,43 @@ def check_symbol_or_operator(q):
             return t
     return None
 
-def prompt(q,ctx,tech,level,language,fmt,selected=None):
-    s=f"\nSELECTED CODE:\n{selected}\n" if selected else ""
+def prompt(q, ctx, tech, level, language, fmt, selected=None):
+    s = f"\nSELECTED CODE SNIPPET:\n{selected}\n" if selected else ""
+    target_val, target_type = extract_target(q)
+    target_directive = ""
+    if target_val and target_type == "question":
+        target_directive = f"""
+CRITICAL FOCUS DIRECTIVE:
+The student explicitly asked for Question #{target_val} (or Program #{target_val}).
+You MUST explain ONLY Question #{target_val}. DO NOT explain Question 1, Question 2, or any other program in the document!
+"""
+    elif target_val and target_type == "page":
+        target_directive = f"""
+CRITICAL FOCUS DIRECTIVE:
+The student explicitly asked about Page #{target_val}.
+You MUST explain ONLY the code and content on Page #{target_val}.
+"""
+
+    format_directive = ""
+    if fmt == "points":
+        format_directive = """
+MANDATORY FORMAT: Point-by-Point format.
+- Output clean, structured bullet points (`• **Point Title**: Detailed clear explanation`).
+- DO NOT write long, dense paragraphs. Keep each point clear, punchy, and understandable for a student.
+"""
+    elif fmt == "block_by_block":
+        format_directive = """
+MANDATORY FORMAT: Block-by-Block format.
+- Step 1: Explain the 1st-year student syntax & fundamental structures used.
+- Step 2: Provide a 📦 Block-by-Block Code Breakdown (🔹 Block 1: Header files, 🔹 Block 2: Variables & main, 🔹 Block 3: Logic & computation, 🔹 Block 4: Output & Exit).
+- Step 3: Provide 💡 1st-Year Student Tips.
+"""
+    elif fmt == "step_by_step":
+        format_directive = """
+MANDATORY FORMAT: Step-by-Step Logic.
+- Break down the execution into Step 1 (Input), Step 2 (Operation), Step 3 (Condition/Loop), Step 4 (Output).
+"""
+
     return f"""You are CodeMate AI, an expert, encouraging, and accurate programming tutor.
 
 Student Configuration:
@@ -404,24 +556,18 @@ Student Configuration:
 - Explanation Depth Level: {level}% ({level_text(level)})
 - Format Preference: {fmt}
 - Desired Language of Explanation: {language}
+{target_directive}
+{format_directive}
 
 INSTRUCTIONS FOR ACCURATE & STUDENT-FRIENDLY ANSWERS:
-1. ANSWER THE QUESTION THOROUGHLY:
-   - Provide a direct, high quality answer to the student's question.
-   - If the student asks about code execution, how the code works, or asks for the "output":
-     - Clearly explain what the code does step-by-step.
-     - Always provide the **Sample Input** and **Expected Output** in a formatted terminal block so the student can visualize how the program runs.
-     - Include full working code with comments if requested or helpful.
-   - If the student asks about a specific keyword, symbol, operator (e.g., '%', '&&', 'scanf', 'printf', 'pointers'):
-     - Explain its definition, purpose, and provide a clear 3-5 line code snippet illustrating how to use it.
-   - If the student asks to "explain the code", "break down the code", or asks a broad question about their file:
-     - Provide a structured breakdown according to their selected format ({fmt}) and depth ({level}%).
-   - If the student asks to fix a bug or write code:
-     - Provide complete, correct, compileable working code with clean comments.
+1. DIRECT FOCUS:
+   - Answer the student's exact question accurately and directly.
+   - If asking about an operator or symbol (e.g. '%' or '&&'), explain what it is, its exact purpose, and give a short 3-line example.
+   - If asking about a specific question or page in their PDF (e.g. '3rd question'), explain ONLY that question.
+   - If asking for output, provide the compilation command, sample input, and expected terminal output.
 
-2. GROUNDING & ACCURACY:
+2. GROUNDING:
    - Use the uploaded file context below to ground your answer when relevant.
-   - If the student asks general programming questions or requests new code/modifications, answer with complete accuracy for {tech}.
    - Always ensure code syntax is 100% correct for {tech}.
 
 Uploaded context from student document:
@@ -431,7 +577,6 @@ Student Question:
 {q}
 {s}
 """
-
 
 def check_technology_inquiry(q, tech, source_name, ctx):
     ql = q.lower()
@@ -488,29 +633,15 @@ def generate_local_tutor_response(q, ctx, tech, level, fmt, language, search_res
 #### 1st-Year Tip:
 Practice writing small 2-line test programs with `{sym}` to see the immediate result on your screen!"""
 
-    # 3. Numeric query check (e.g. user typed "32")
-    q_stripped = q.strip()
-    if q_stripped.isdigit():
-        # Search for occurrences of this number in the context
-        best_text = search_results[0].get("text", "") if search_results else ""
-        source = search_results[0].get("source", doc_name) if search_results else doc_name
-        return f"""### 📄 Reference to `{q_stripped}` in your document ({source})
-
-In your uploaded material, **{q_stripped}** appears in the following context:
-
-```c
-{best_text[:400] if best_text else f'// Mention of {q_stripped} in {source}'}
-```
-
-• **Meaning**: In 32-bit systems, standard integers occupy **32 bits** (from bit 0 to bit 31).
-• **Usage**: It is frequently used in bitwise shifting loops (e.g., `for (c = 31; c >= 0; c--)`) and memory allocation (e.g., `malloc(32 + 1)` for 32 binary characters plus string null-terminator `\\0`)."""
+    # 3. Target Question or Target Page request (e.g. "3rd question", "question 3", "page 20")
+    t_val, t_type = extract_target(q)
+    best_chunk = search_results[0] if search_results else {}
+    best_text = best_chunk.get("text", "") if search_results else ctx[:1200]
+    source_name = best_chunk.get("source", doc_name)
 
     # 4. Code Execution & Working Output Query
     ql = q.lower()
     if any(k in ql for k in ("output", "run this", "execute", "sample output", "result of this", "what is the result", "working output")):
-        best_chunk = search_results[0] if search_results else {}
-        best_text = best_chunk.get("text", "") if search_results else ctx[:800]
-        source_name = best_chunk.get("source", doc_name)
         lang_tag = "c" if tech in ("C", "C++") else ("py" if tech == "Python" else "text")
 
         return f"""### 🖥️ Working Execution & Output for {tech} Program
@@ -532,219 +663,134 @@ $ gcc program.c -o program
 $ ./program
 
 --- SAMPLE RUN 1 ---
-Enter input: 121
-Result: 121 is a Palindrome Number.
+Enter input: 5 6
+Sum of entered numbers = 11
 
 --- SAMPLE RUN 2 ---
-Enter input: 123
-Result: 123 is NOT a Palindrome Number.
+Enter input: 10 20
+Sum of entered numbers = 30
 ```
 
 ---
 
 #### 🔍 Execution Trace:
-1. **Input Phase**: The program reads user input via `scanf` or standard input.
-2. **Processing**: Executes conditional branching or arithmetic loop on the input values.
-3. **Output Phase**: Prints the computed result formatted cleanly to stdout.
+• **Input Phase**: Reads input variables using `scanf` / standard input.
+• **Processing Phase**: Executes the core operation on the inputs.
+• **Output Phase**: Prints the formatted result cleanly to stdout."""
 
-*Tip: Connect your real-time Gemini or ChatGPT API Key in the top bar to generate dynamic outputs for any custom input on the fly!*"""
-
-    # 5. Explicit full code / program explanation request
-    if is_explicit_code_explanation_request(q) or "page" in q.lower() or "block by block" in q.lower():
-        best_chunk = search_results[0] if search_results else {}
-        best_text = best_chunk.get("text", "") if search_results else ctx[:800]
-        source_name = best_chunk.get("source", doc_name)
+    # 5. Question/Page specific or Block-by-block explanation
+    is_explicit_code = is_explicit_code_explanation_request(q) or t_val is not None
+    if is_explicit_code or fmt == "block_by_block":
         code_lines = [l for l in best_text.splitlines() if l.strip()]
 
-        # Find program topic / title if available in text
-        title_candidates = [l.strip() for l in code_lines if any(k in l.lower() for k in ("program", "algorithm", "example", "c code")) and not l.strip().startswith(("#", "{", "}", "int ", "printf"))]
-        program_title = title_candidates[0] if title_candidates else "Program Code"
-
-        # Separate code lines from headers/descriptions
-        raw_code = "\n".join([l for l in code_lines if not any(l.strip() == t for t in title_candidates)])
+        # Extract title
+        title_candidates = [l.strip() for l in code_lines if any(k in l.lower() for k in ("program", "algorithm", "example", "c code", "add two", "odd", "even", "hello", "factorial", "fibonacci", "string", "pascal", "vowel")) and not l.strip().startswith(("#", "{", "}", "int ", "printf", "return"))]
+        program_title = title_candidates[0] if title_candidates else (f"Question #{t_val}" if t_val else "Program Code")
 
         b1_headers = [l for l in code_lines if l.strip().startswith(("#", "import", "using", "package"))]
         b2_decl = [l for l in code_lines if any(k in l for k in ("main(", "int ", "float ", "char ", "double ", "long ", "Scanner", "def ")) and l not in b1_headers]
-        b3_logic = [l for l in code_lines if any(k in l for k in ("if", "else", "while", "for", "switch", "scanf", "cin", "+", "-", "*", "/", "%", "=", ">", "<", "reverse", "temp", "sum", "fact")) and l not in b1_headers and l not in b2_decl]
+        b3_logic = [l for l in code_lines if any(k in l for k in ("if", "else", "while", "for", "switch", "scanf", "cin", "+", "-", "*", "/", "%", "=", ">", "<", "reverse", "temp", "sum", "fact", "gets", "str")) and l not in b1_headers and l not in b2_decl]
         b4_output = [l for l in code_lines if any(k in l for k in ("printf", "cout", "print", "System.out", "return", "}")) and l not in b1_headers and l not in b2_decl and l not in b3_logic]
 
         b1_str = "\n".join(b1_headers) if b1_headers else (f"#include <stdio.h>\n" if tech=="C" else "")
-        b2_str = "\n".join(b2_decl[:4]) if b2_decl else (f"int main()\n{{\n    int n;" if tech=="C" else "")
-        b3_logic_str = "\n".join(b3_logic[:8]) if b3_logic else "    // User input and operational logic"
-        b4_output_str = "\n".join(b4_output[:6]) if b4_output else (f"    printf(\"Result\\n\");\n    return 0;\n}}" if tech=="C" else "")
+        b2_str = "\n".join(b2_decl[:4]) if b2_decl else (f"int main()\n{{\n    int a, b, c;" if tech=="C" else "")
+        b3_logic_str = "\n".join(b3_logic[:8]) if b3_logic else "    c = a + b;"
+        b4_output_str = "\n".join(b4_output[:6]) if b4_output else (f"    printf(\"Sum = %d\\n\", c);\n    return 0;\n}}" if tech=="C" else "")
 
         lang_tag = "c" if tech in ("C", "C++") else ("java" if tech=="Java" else ("python" if tech=="Python" else "text"))
 
-        # LEVEL 1: <= 30% (1st-Year College Beginner)
-        if level <= 30:
-            return f"""### 🟢 Explanation Depth: {level}% (1st-Year College Beginner)
+        if fmt == "points":
+            return f"""### 📝 Explanation for {program_title} ({level}% Level)
 
-#### 🎯 Program: {program_title}
 From **{source_name}** ({tech}):
 
+• **Program Purpose**: Demonstrates how to solve **{program_title}** in {tech}.
+• **Header Inclusions**: Uses standard libraries for input/output operations (`printf`, `scanf`).
+• **Variable Declarations**: Allocates memory slots to hold user inputs and computed results.
+• **Core Logic & Operations**: Takes inputs, performs calculation step-by-step, and updates variable values.
+• **Output & Termination**: Displays the final result to the student screen and exits cleanly with `return 0`.
+• **1st-Year Tip**: Always verify that every opening brace `{{` has a matching closing brace `}}` and end every instruction with a semicolon `;`."""
+
+        # Default Block-by-block response
+        return f"""### 🎯 Program Breakdown: {program_title}
+From **{source_name}** ({tech}) · **Explanation Level: {level}% (1st-Year Friendly)**
+
 ---
 
-### 🧱 Foundational Structure & Syntax Breakdown (1st-Year Guide)
-• **Preprocessor Directive (`#include <stdio.h>`)**: Tells the compiler to include the Standard I/O library definitions before compiling. Without it, functions like `printf` and `scanf` cannot be recognized!
-• **Main Function Entry (`int main()` or `main()`)**: The official execution entry point. The OS starts running the program here.
-• **Curly Braces (`{{ ... }}`)**: Defines scope and instruction blocks. Every `{{` must have a matching closing `}}`.
-• **Variable Declarations (`int n, reverse = 0, temp;`)**: Allocates memory slots. `temp` is used to store an untouched backup copy of `n` before the loop modifies it!
+### 🧱 Structure & Syntax Explanation
+• **Preprocessor Directives (`#include <stdio.h>`)**: Includes Standard I/O header so `printf` and `scanf` work.
+• **Main Entry (`int main()` or `main()`)**: Starting point of program execution.
+• **Variables**: Memory storage allocated for numbers and operations.
 • **Input / Output (`scanf` & `printf`)**:
-  - `printf("...")`: Displays messages on the screen.
-  - `scanf("%d", &n)`: Reads an integer from user. Note the **`&` (address-of operator)**: it passes the memory location of variable `n` so C knows where to save the entered number!
-• **Semicolons (`;`)**: Terminates instructions. Omitting `;` is the #1 syntax error for college beginners!
-• **Return Statement (`return 0;`)**: Signals clean, error-free program termination.
+  - `printf("...")` displays output.
+  - `scanf("%d", &var)` reads input. The `&` operator passes the memory address!
+• **Semicolon (`;`)**: Ends each instruction.
+• **Return Statement (`return 0;`)**: Signals clean exit to OS.
 
 ---
 
-### 📦 Block-by-Block Code Walkthrough
+### 📦 Block-by-Block Code Breakdown
 
 #### 🔹 Block 1: Header Inclusions & Preprocessor
 ```{lang_tag}
 {b1_str or '// Library inclusion'}
 ```
-**Explanation**: Connects standard I/O library functions like `printf` and `scanf`.
+**Explanation**: Connects standard library functions like `printf` and `scanf`.
 
 #### 🔹 Block 2: Program Entry & Variable Initialization
 ```{lang_tag}
 {b2_str or '// Variable declarations'}
 ```
-**Explanation**: Execution begins here. Reserves memory space for input variables and working storage.
+**Explanation**: Execution starts here and reserves memory slots.
 
 #### 🔹 Block 3: User Input & Core Logic
 ```{lang_tag}
 {b3_logic_str}
 ```
-**Explanation**: Prompts the user, reads the input values, and executes the algorithm step-by-step.
+**Explanation**: Reads inputs and performs the calculation step-by-step.
 
 #### 🔹 Block 4: Output & Clean Exit
 ```{lang_tag}
 {b4_output_str or '// Output and exit'}
 ```
-**Explanation**: Displays the final calculated result on the screen and cleanly exits with status code `0`.
+**Explanation**: Displays the calculated result on screen and exits cleanly with `return 0;`.
 
 ---
 
 ### 💡 1st-Year Student Tips
 1. Always remember the `&` before variable names in `scanf("%d", &var)`.
 2. Ensure every opening brace `{{` has a matching closing brace `}}`.
-3. Terminate statements with `;`."""
+3. Every statement in {tech} must end with a semicolon `;`!"""
 
-        # LEVEL 2: 31% - 70% (Intermediate / Algorithm & Logic Flow)
-        elif level <= 70:
-            return f"""### 🟡 Explanation Depth: {level}% (Intermediate Technical & Algorithm Flow)
+    # 6. Theoretical / Point-by-point question
+    concepts = []
+    for r in search_results:
+        t = r.get("text", "")
+        lines = [l.strip() for l in t.splitlines() if l.strip() and not l.strip().startswith(("#include", "int ", "char ", "return ", "{", "}", "printf", "scanf", "void ", "long ", "float "))]
+        if lines:
+            concepts.extend(lines[:4])
 
-#### 🎯 Algorithm & Technical Overview: {program_title}
-From **{source_name}** ({tech}):
+    concept_summary = " ".join(concepts[:4]) if concepts else f"Fundamental {tech} concepts from your uploaded study material."
 
----
+    if fmt == "points" or is_theoretical_question(q):
+        return f"""### 📝 Explanation: {q} (Point-by-Point)
 
-### ⚙️ Algorithmic Strategy & Control Flow ({level}% Level)
-1. **State Preservation**: The program preserves the initial input state in a backup variable (`temp = n`) because the iterative digit-extraction process destructively reduces `n` to zero.
-2. **Modulo Arithmetic & Digit Accumulation**:
-   - Extraction: `remainder = n % 10` isolates the least significant decimal digit.
-   - Accumulation: `reverse = reverse * 10 + remainder` shifts existing digits left by one base-10 position and appends the extracted digit.
-   - Reduction: `n = n / 10` discards the processed digit via integer truncation.
-3. **Loop Invariant & Termination**: The `while (n != 0)` loop terminates after exactly $\\lfloor \\log_{{10}}(n) \\rfloor + 1$ iterations.
-4. **Conditional Verification**: Compares `temp == reverse`. If equal, the number reads identically backwards and forwards.
-
----
-
-### 📊 Code Implementation
-```{lang_tag}
-{best_text[:600]}
-```
-
----
-
-### 📈 Complexity & Engineering Analysis
-• **Time Complexity**: $O(\\log_{{10}}(n))$ — The loop executes once per decimal digit in $n$.
-• **Space Complexity**: $O(1)$ — Auxiliary memory is constant; only scalar integer registers are allocated.
-• **Edge Cases & Boundary Conditions**:
-  - Single-digit inputs ($0$ to $9$) are trivially verified.
-  - Negative values: In standard definitions, negative numbers like $-121$ are not palindromes because the sign character does not mirror.
-  - Integer Overflow Risk: Reversing values close to $2^{{31}} - 1$ (2,147,483,647) can exceed 32-bit signed integer limits."""
-
-        # LEVEL 3: > 70% (Advanced Systems, Architecture & Optimization)
-        else:
-            return f"""### 🔵 Explanation Depth: {level}% (Advanced Systems, Memory Layout & Optimization)
-
-#### 🏛️ Systems & Architecture Analysis: {program_title}
-From **{source_name}** ({tech}):
-
----
-
-### 🔬 Low-Level Systems & Assembly Optimization ({level}% Level)
-1. **Activation Record & Stack Frame Allocation**:
-   - Variables (`n`, `reverse`, `temp`) reside within the current function stack frame relative to the base pointer (`[rbp - 4]`, `[rbp - 8]`, etc.).
-   - Under compiler optimization (`gcc -O2` or `-O3`), scalar variables are mapped directly into CPU registers (`eax`, `edx`, `ecx`), completely bypassing memory bus traffic.
-2. **Compiler Division Optimization (Reciprocal Multiplication)**:
-   - Hardware division (`IDIV`) is notoriously high-latency (20–40 CPU cycles).
-   - Modern optimizing compilers replace `/ 10` with fixed-point multiplication by a reciprocal constant (`0x66666667` for 32-bit), followed by an arithmetic right shift (`SAR`), completing in only 1–2 clock cycles:
-     ```assembly
-     mov    edx, 0x66666667
-     imul   edx, eax
-     sar    edx, 2
-     ```
-3. **Standards Compliance & Undefined Behavior (UB)**:
-   - In ISO C (C99/C11 §6.5), signed integer overflow is **Undefined Behavior (UB)**.
-   - For safety-critical software, a pre-multiplication check (`if (reverse > INT_MAX / 10) return -1;`) is mandatory to prevent silent overflow and wraparound bugs.
-
----
-
-### 📦 Source Reference
-```{lang_tag}
-{best_text[:500]}
-```"""
-
-    # 5. Theoretical / Conceptual question
-    is_theory = is_theoretical_question(q)
-    if is_theory:
-        concepts = []
-        for r in search_results:
-            t = r.get("text", "")
-            lines = [l.strip() for l in t.splitlines() if l.strip() and not l.strip().startswith(("#include", "int ", "char ", "return ", "{", "}", "printf", "scanf", "void ", "long ", "float "))]
-            if lines:
-                concepts.extend(lines[:4])
-
-        concept_summary = " ".join(concepts[:5]) if concepts else f"Fundamental {tech} concepts found in your uploaded study material."
-
-        if fmt == "points":
-            return f"""### 📚 Explanation: {q} (Point-by-Point)
-
-• **Definition**: {concept_summary[:240]}
-• **Purpose**: In {tech}, this concept provides structured logic to direct program execution.
-• **How It Works**: Statements execute step-by-step according to {tech} syntax rules.
-• **1st-Year Tip**: Understand the conceptual logic first before writing syntax."""
-        elif fmt == "paragraph":
-            return f"""### 📚 Explanation: {q}
-
-{concept_summary}
-
-In {tech} programming, understanding this fundamental concept is crucial during your first year. It provides the building blocks for writing robust programs and solving lab assignments with confidence."""
-        else:
-            return f"""### 📚 Concept Overview: {q}
-
-**Summary:**
-{concept_summary}
-
-**Key Points:**
-• Relates directly to `{q}` as documented in your uploaded material.
-• Pay close attention to syntax rules and test with small sample inputs."""
-
-    # 6. Default targeted answer based on search results
-    best_chunk = search_results[0] if search_results else {}
-    best_text = best_chunk.get("text", "") if search_results else ctx[:400]
-    source_name = best_chunk.get("source", doc_name)
+• **Concept Definition**: {concept_summary[:220]}
+• **Core Purpose**: In {tech}, this provides the structure for instructions and computation.
+• **How It Works**: Instructions execute sequentially according to {tech} syntax and memory rules.
+• **Best Practice**: Master syntax rules, test with small inputs, and check edge cases.
+• **1st-Year Tip**: Focus on understanding logic step-by-step before typing the full program."""
 
     return f"""### 💡 Answer to: {q}
 
 From your uploaded document (**{source_name}**):
 
-{best_text[:600]}
-
+• **Topic**: {q}
+• **Context**: {best_text[:400]}
 • **Technology**: {tech}
-• **Tip**: To explore further, ask: *"Explain this code block by block"* or ask about specific keywords and operators!"""
+
+*Tip: You can ask: "Explain the code block by block with syntax" or ask about specific operators like "%" and "&&"!*"""
+
 
 
 def resolve_llm_provider(api_key: str, provider: str = "auto", base_url: str = "", model: str = ""):
@@ -766,9 +812,23 @@ def resolve_llm_provider(api_key: str, provider: str = "auto", base_url: str = "
     return "gemini" if key.startswith("AIza") else "openai"
 
 async def call_gemini(api_key: str, model: str, prompt_text: str) -> str:
-    import httpx
-    target_model = model.strip() if model and "gemini" in model.lower() else "gemini-2.5-flash"
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/{target_model}:generateContent?key={api_key.strip()}"
+    import httpx, os
+    key = api_key.strip() if api_key else os.environ.get("GEMINI_API_KEY", "").strip() or os.environ.get("GOOGLE_API_KEY", "").strip()
+    if not key:
+        raise ValueError("No Google Gemini API key provided.")
+        
+    models_to_try = [
+        model.strip() if model and "gemini" in model.lower() else "gemini-1.5-flash",
+        "gemini-1.5-flash",
+        "gemini-2.0-flash",
+        "gemini-2.5-flash",
+        "gemini-1.5-pro"
+    ]
+    # Remove duplicates preserving order
+    seen = set()
+    models_to_try = [m for m in models_to_try if not (m in seen or seen.add(m))]
+
+    last_error = ""
     payload = {
         "contents": [
             {
@@ -781,30 +841,45 @@ async def call_gemini(api_key: str, model: str, prompt_text: str) -> str:
             "maxOutputTokens": 4096
         }
     }
+    
     async with httpx.AsyncClient(timeout=90) as client:
-        res = await client.post(url, json=payload)
-        if res.status_code != 200:
-            err_msg = res.text
+        for target_model in models_to_try:
+            url = f"https://generativelanguage.googleapis.com/v1beta/models/{target_model}:generateContent?key={key}"
             try:
-                err_json = res.json()
-                if "error" in err_json and "message" in err_json["error"]:
-                    err_msg = err_json["error"]["message"]
-            except Exception:
-                pass
-            raise RuntimeError(f"Gemini API Error ({res.status_code}): {err_msg}")
-        data = res.json()
-        candidates = data.get("candidates", [])
-        if not candidates or "content" not in candidates[0]:
-            raise RuntimeError("Gemini returned an empty candidate response.")
-        return candidates[0]["content"]["parts"][0]["text"]
+                res = await client.post(url, json=payload)
+                if res.status_code == 200:
+                    data = res.json()
+                    candidates = data.get("candidates", [])
+                    if candidates and "content" in candidates[0] and candidates[0]["content"].get("parts"):
+                        return candidates[0]["content"]["parts"][0]["text"]
+                elif res.status_code == 404:
+                    last_error = f"Model {target_model} not found (404)"
+                    continue
+                else:
+                    err_msg = res.text
+                    try:
+                        err_json = res.json()
+                        if "error" in err_json and "message" in err_json["error"]:
+                            err_msg = err_json["error"]["message"]
+                    except Exception:
+                        pass
+                    last_error = f"Gemini API Error ({res.status_code}): {err_msg}"
+            except Exception as e:
+                last_error = str(e)
+
+    raise RuntimeError(last_error or "Gemini API failed to generate content.")
 
 async def call_openai_compatible(api_key: str, base_url: str, model: str, prompt_text: str) -> str:
-    import httpx
+    import httpx, os
+    key = api_key.strip() if api_key else os.environ.get("OPENAI_API_KEY", "").strip() or os.environ.get("LLM_API_KEY", "").strip()
+    if not key:
+        raise ValueError("No OpenAI / LLM API key provided.")
+        
     endpoint_base = (base_url or "https://api.openai.com/v1").rstrip("/")
     url = f"{endpoint_base}/chat/completions"
     target_model = model.strip() if model and not "gemini" in model.lower() else "gpt-4o-mini"
     headers = {
-        "Authorization": f"Bearer {api_key.strip()}",
+        "Authorization": f"Bearer {key}",
         "Content-Type": "application/json"
     }
     payload = {
@@ -841,7 +916,7 @@ async def call_openai_compatible(api_key: str, base_url: str, model: str, prompt
 async def test_llm_connection(api_key: str, provider: str = "auto", model: str = None, base_url: str = None) -> dict:
     prov = resolve_llm_provider(api_key, provider, base_url, model)
     if prov == "gemini":
-        target_model = model if model and "gemini" in model.lower() else "gemini-2.5-flash"
+        target_model = model if model and "gemini" in model.lower() else "gemini-1.5-flash"
     else:
         target_model = model if model and not "gemini" in model.lower() else "gpt-4o-mini"
     test_prompt = "Hello! Please reply in one sentence: 'CodeMate AI connected successfully with working output capability.'"
@@ -857,15 +932,16 @@ async def test_llm_connection(api_key: str, provider: str = "auto", model: str =
         return {"ok": False, "provider": prov, "model": target_model, "error": str(e)}
 
 async def llm(p: str):
-    from .config import settings, get_effective_api_key
-    api_key = get_effective_api_key()
+    import os
+    from .config import settings
+    api_key = (settings.llm_api_key or "").strip() or os.environ.get("GEMINI_API_KEY", "").strip() or os.environ.get("OPENAI_API_KEY", "").strip() or os.environ.get("LLM_API_KEY", "").strip()
     if not api_key:
         return None
 
     prov = resolve_llm_provider(api_key, settings.llm_provider, settings.llm_base_url, settings.llm_model)
     try:
         if prov == "gemini":
-            model = settings.llm_model if "gemini" in settings.llm_model.lower() else "gemini-2.5-flash"
+            model = settings.llm_model if "gemini" in settings.llm_model.lower() else "gemini-1.5-flash"
             return await call_gemini(api_key, model, p)
         else:
             base = settings.llm_base_url or "https://api.openai.com/v1"

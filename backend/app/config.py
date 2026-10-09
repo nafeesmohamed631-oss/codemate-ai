@@ -1,4 +1,3 @@
-import os
 from pathlib import Path
 from pydantic_settings import BaseSettings
 
@@ -18,16 +17,6 @@ class Settings(BaseSettings):
         extra = "ignore"
 
 settings = Settings()
-
-def get_effective_api_key() -> str:
-    """Return the active LLM API key from settings or environment variables."""
-    if settings.llm_api_key and settings.llm_api_key.strip():
-        return settings.llm_api_key.strip()
-    for env_var in ["GEMINI_API_KEY", "GOOGLE_API_KEY", "OPENAI_API_KEY", "GROQ_API_KEY", "LLM_API_KEY"]:
-        val = os.environ.get(env_var, "").strip()
-        if val:
-            return val
-    return ""
 
 def save_llm_settings(provider: str = None, api_key: str = None, model: str = None, base_url: str = None):
     """Update settings in memory and persist them to backend/.env"""

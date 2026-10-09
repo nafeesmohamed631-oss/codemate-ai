@@ -8,7 +8,11 @@ from .models import User, Project, ProjectFile, KnowledgePreference, ChatSession
 from typing import Optional
 from .schemas import AuthIn, RegisterIn, PreferenceIn, ChatIn, LLMConfigIn, LLMTestIn
 from .security import hash_password, verify_password, token, current_user
-from .services import extract, build_index, search, prompt, llm, detect_technologies, generate_local_tutor_response, test_llm_connection, get_model, resolve_llm_provider
+from .services import (
+    extract, build_index, search, prompt, llm, detect_technologies,
+    generate_local_tutor_response, test_llm_connection, get_model,
+    resolve_llm_provider, extract_target, find_question_in_project_files
+)
 from .config import settings, save_llm_settings
 
 Base.metadata.create_all(bind=engine)
@@ -133,38 +137,44 @@ async def ask(d:ChatIn,db:Session=Depends(get_db),u=Depends(current_user)):
             "score": 1.0
         })
 
-    # 2. Check if question explicitly mentions a specific page (e.g. '20th page', 'page 20', 'page-20', '#page-20')
-    import re
-    page_match = re.search(r'(?:#page-|page-|page\s+|pg\s+)(\d+)', d.question, re.IGNORECASE)
-    if not page_match:
-        page_match = re.search(r'(\d+)(?:st|nd|rd|th)?\s+page', d.question, re.IGNORECASE)
+    # 2. Check for explicit question number or page number in user query
+    target_val, target_type = extract_target(d.question)
     
-    target_file = None
-    if page_match:
-        page_num = int(page_match.group(1))
-        target_file = db.query(ProjectFile).filter(
-            ProjectFile.project_id == p.id,
-            ProjectFile.relative_path.like(f"%#page-{page_num}")
-        ).first()
+    if target_val is not None:
+        if target_type == "question":
+            # Search project files for exact question/program header
+            q_matches = find_question_in_project_files(p.files, target_val)
+            for qm in q_matches:
+                if not any(r.get("text") == qm.get("text") for r in rs):
+                    rs.append(qm)
+        elif target_type == "page":
+            target_page_file = db.query(ProjectFile).filter(
+                ProjectFile.project_id == p.id,
+                ProjectFile.relative_path.like(f"%#page-{target_val}")
+            ).first()
+            if target_page_file and target_page_file.content:
+                rs.append({
+                    "source": target_page_file.relative_path,
+                    "text": target_page_file.content,
+                    "start_line": 1,
+                    "end_line": len(target_page_file.content.splitlines()),
+                    "score": 1.0
+                })
 
-    if not target_file:
-        for f in p.files:
-            if f.relative_path.lower() in d.question.lower() or Path(f.relative_path).name.lower() in d.question.lower():
-                target_file = f
-                break
+    # 3. Check for direct filename matches
+    for f in p.files:
+        if f.relative_path.lower() in d.question.lower() or Path(f.relative_path).name.lower() in d.question.lower():
+            if not any(r.get("source") == f.relative_path for r in rs):
+                rs.append({
+                    "source": f.relative_path,
+                    "text": f.content,
+                    "start_line": 1,
+                    "end_line": len(f.content.splitlines()),
+                    "score": 1.0
+                })
+            break
 
-    if target_file and target_file.content:
-        # Avoid duplicate if already added
-        if not any(r["text"] == target_file.content for r in rs):
-            rs.insert(0, {
-                "source": target_file.relative_path,
-                "text": target_file.content,
-                "start_line": 1,
-                "end_line": len(target_file.content.splitlines()),
-                "score": 1.0
-            })
-
-    # 3. Augment with vector search results
+    # 4. Augment with semantic vector search results
     search_rs = search(p.root_path, d.question, 6)
     for s in search_rs:
         if not any(r["source"] == s["source"] and r.get("text") == s.get("text") for r in rs):
@@ -190,8 +200,7 @@ async def document_preview(file:UploadFile=File(...),u=Depends(current_user)):
 
 @app.get("/api/llm/config")
 def get_llm_config():
-    from .config import get_effective_api_key
-    api_key = get_effective_api_key()
+    api_key = (settings.llm_api_key or "").strip()
     is_configured = bool(api_key)
     masked_key = ""
     if is_configured:

@@ -73,275 +73,7 @@ async function api(path, options = {}) {
   return res.json();
 }
 
-function LLMConfigModal({ isOpen, onClose, onConfigSaved, currentConfig }) {
-  if (!isOpen) return null;
 
-  const [provider, setProvider] = useState(currentConfig?.provider || "gemini");
-  const [apiKey, setApiKey] = useState("");
-  const [model, setModel] = useState(currentConfig?.model || (provider === "openai" ? "gpt-4o-mini" : "gemini-2.5-flash"));
-  const [baseUrl, setBaseUrl] = useState(currentConfig?.base_url || "");
-  const [showKey, setShowKey] = useState(false);
-  const [testing, setTesting] = useState(false);
-  const [saving, setSaving] = useState(false);
-  const [testResult, setTestResult] = useState(null);
-  const [statusMsg, setStatusMsg] = useState("");
-
-  const geminiModels = [
-    { id: "gemini-2.5-flash", name: "Gemini 2.5 Flash (Fastest & Recommended)" },
-    { id: "gemini-1.5-flash", name: "Gemini 1.5 Flash (High Speed)" },
-    { id: "gemini-2.0-flash", name: "Gemini 2.0 Flash" },
-    { id: "gemini-1.5-pro", name: "Gemini 1.5 Pro (Deep Reasoning)" },
-  ];
-
-  const openaiModels = [
-    { id: "gpt-4o-mini", name: "GPT-4o Mini (Fast & Cost Efficient)" },
-    { id: "gpt-4o", name: "GPT-4o (Most Capable)" },
-    { id: "gpt-3.5-turbo", name: "GPT-3.5 Turbo" },
-  ];
-
-  function handleProviderChange(newProv) {
-    setProvider(newProv);
-    setTestResult(null);
-    if (newProv === "gemini") {
-      setModel("gemini-2.5-flash");
-      setBaseUrl("");
-    } else if (newProv === "openai") {
-      setModel("gpt-4o-mini");
-      setBaseUrl("https://api.openai.com/v1");
-    } else {
-      setModel("llama-3.3-70b-versatile");
-      setBaseUrl("https://api.groq.com/openai/v1");
-    }
-  }
-
-  async function handleTest() {
-    setTesting(true);
-    setTestResult(null);
-    setStatusMsg("");
-    try {
-      const res = await api("/llm/test", {
-        method: "POST",
-        body: JSON.stringify({
-          provider,
-          api_key: apiKey ? apiKey : undefined,
-          model,
-          base_url: baseUrl ? baseUrl : undefined,
-        }),
-      });
-      setTestResult(res);
-    } catch (err) {
-      setTestResult({ ok: false, error: err.message });
-    } finally {
-      setTesting(false);
-    }
-  }
-
-  async function handleSave(e) {
-    if (e) e.preventDefault();
-    setSaving(true);
-    setStatusMsg("");
-    try {
-      const updated = await api("/llm/config", {
-        method: "POST",
-        body: JSON.stringify({
-          provider,
-          api_key: apiKey ? apiKey : undefined,
-          model,
-          base_url: baseUrl,
-        }),
-      });
-      setStatusMsg("Settings saved and applied in real-time!");
-      onConfigSaved(updated);
-      setTimeout(() => {
-        onClose();
-      }, 900);
-    } catch (err) {
-      setStatusMsg("Failed to save: " + err.message);
-    } finally {
-      setSaving(false);
-    }
-  }
-
-  return (
-    <div className="modal" onClick={onClose}>
-      <div className="llm-modal-box" onClick={(e) => e.stopPropagation()}>
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", borderBottom: "1px solid #293143", paddingBottom: 12 }}>
-          <h2 style={{ margin: 0, fontSize: 18, display: "flex", alignItems: "center", gap: 8 }}>
-            <Cpu color="#8b7cff" size={20} /> Real-Time AI Model & API Key
-          </h2>
-          <button className="secondary" style={{ padding: "4px 10px", fontSize: 13 }} onClick={onClose}>
-            ✕
-          </button>
-        </div>
-
-        {currentConfig?.is_configured ? (
-          <div className="llm-status-card success">
-            <CheckCircle2 size={18} color="#10b981" />
-            <div>
-              <strong>Active AI Model: {currentConfig.model}</strong>
-              <div style={{ fontSize: 12, opacity: 0.85, marginTop: 2 }}>
-                Key Configured ({currentConfig.masked_key}) · Real-time code execution and working outputs are enabled!
-              </div>
-            </div>
-          </div>
-        ) : (
-          <div className="llm-status-card info">
-            <Sparkles size={18} color="#8b7cff" />
-            <div>
-              <strong>Connect Real-Time LLM Key (Google Gemini or ChatGPT)</strong>
-              <div style={{ fontSize: 12, opacity: 0.85, marginTop: 2 }}>
-                Add your key for live code answers, custom questions, and verified terminal outputs.
-              </div>
-            </div>
-          </div>
-        )}
-
-        <div className="llm-field-group">
-          <label>Select AI Provider</label>
-          <div className="llm-provider-tabs">
-            <div
-              className={`llm-provider-tab ${provider === "gemini" ? "active" : ""}`}
-              onClick={() => handleProviderChange("gemini")}
-            >
-              🟢 Google Gemini (Free & Fast)
-            </div>
-            <div
-              className={`llm-provider-tab ${provider === "openai" ? "active" : ""}`}
-              onClick={() => handleProviderChange("openai")}
-            >
-              🔵 OpenAI (ChatGPT)
-            </div>
-            <div
-              className={`llm-provider-tab ${provider === "custom" ? "active" : ""}`}
-              onClick={() => handleProviderChange("custom")}
-            >
-              🟣 Custom / Groq
-            </div>
-          </div>
-        </div>
-
-        <div className="llm-field-group">
-          <label style={{ display: "flex", justifyContent: "space-between" }}>
-            <span>{provider === "gemini" ? "Google Gemini API Key" : (provider === "openai" ? "OpenAI API Key" : "API Key")}</span>
-            {currentConfig?.masked_key && !apiKey && (
-              <span style={{ fontSize: 11, color: "#8f9bb0" }}>Current: {currentConfig.masked_key}</span>
-            )}
-          </label>
-          <div className="llm-key-wrapper">
-            <input
-              type={showKey ? "text" : "password"}
-              placeholder={provider === "gemini" ? "Paste AIzaSy... key from Google AI Studio" : "Paste sk-... key"}
-              value={apiKey}
-              onChange={(e) => setApiKey(e.target.value)}
-            />
-            <button type="button" className="eye-btn" onClick={() => setShowKey(!showKey)}>
-              {showKey ? <EyeOff size={16} /> : <Eye size={16} />}
-            </button>
-          </div>
-        </div>
-
-        <div className="llm-field-group">
-          <label>AI Model</label>
-          {provider === "gemini" ? (
-            <select value={model} onChange={(e) => setModel(e.target.value)}>
-              {geminiModels.map((m) => (
-                <option key={m.id} value={m.id}>{m.name}</option>
-              ))}
-            </select>
-          ) : provider === "openai" ? (
-            <select value={model} onChange={(e) => setModel(e.target.value)}>
-              {openaiModels.map((m) => (
-                <option key={m.id} value={m.id}>{m.name}</option>
-              ))}
-            </select>
-          ) : (
-            <input
-              type="text"
-              placeholder="e.g. llama-3.3-70b-versatile or deepseek-chat"
-              value={model}
-              onChange={(e) => setModel(e.target.value)}
-            />
-          )}
-        </div>
-
-        {provider === "custom" && (
-          <div className="llm-field-group">
-            <label>API Base URL</label>
-            <input
-              type="text"
-              placeholder="e.g. https://api.groq.com/openai/v1"
-              value={baseUrl}
-              onChange={(e) => setBaseUrl(e.target.value)}
-            />
-          </div>
-        )}
-
-        {testResult && (
-          <div className={`llm-status-card ${testResult.ok ? "success" : "error"}`}>
-            {testResult.ok ? <CheckCircle2 size={16} /> : <AlertTriangle size={16} />}
-            <div>
-              <strong>{testResult.ok ? "Connection Successful!" : "Connection Failed"}</strong>
-              <div style={{ fontSize: 12, marginTop: 2 }}>
-                {testResult.ok ? testResult.reply : testResult.error}
-              </div>
-            </div>
-          </div>
-        )}
-
-        {statusMsg && (
-          <div style={{ color: "#34d399", fontSize: 13, textAlign: "center" }}>
-            {statusMsg}
-          </div>
-        )}
-
-        <div className="llm-hint-box">
-          {provider === "gemini" ? (
-            <div>
-              <strong>💡 Get a Free Google Gemini API Key:</strong>
-              <div>
-                1. Visit <a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noreferrer">aistudio.google.com</a>.
-                <br />
-                2. Click <strong>"Create API key"</strong> (Free, no credit card required).
-                <br />
-                3. Paste it above and click <strong>"Save & Apply"</strong>.
-              </div>
-            </div>
-          ) : provider === "openai" ? (
-            <div>
-              <strong>💡 Get an OpenAI API Key:</strong>
-              <div>
-                Visit <a href="https://platform.openai.com/api-keys" target="_blank" rel="noreferrer">platform.openai.com</a>, generate a secret key, and paste it above.
-              </div>
-            </div>
-          ) : (
-            <div>
-              <strong>💡 Custom Endpoint Tip:</strong>
-              <div>Supports any OpenAI-compatible provider like Groq, DeepSeek, Ollama, etc.</div>
-            </div>
-          )}
-        </div>
-
-        <div style={{ display: "flex", justifyContent: "flex-end", gap: 10, marginTop: 8 }}>
-          <button
-            type="button"
-            className="secondary"
-            onClick={handleTest}
-            disabled={testing || (!apiKey && !currentConfig?.is_configured)}
-          >
-            {testing ? "Testing..." : "⚡ Test Connection"}
-          </button>
-          <button
-            type="button"
-            onClick={handleSave}
-            disabled={saving}
-          >
-            {saving ? "Saving..." : "Save & Apply"}
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-}
 
 
 // Markdown formatter for AI Tutor responses
@@ -559,7 +291,6 @@ function App() {
 
   const [backendOnline, setBackendOnline] = useState(true);
   const [llmConfig, setLlmConfig] = useState(null);
-  const [showLlmModal, setShowLlmModal] = useState(false);
 
   async function checkBackendHealth() {
     try {
@@ -831,22 +562,6 @@ function App() {
             <span>{backendOnline ? "Backend Online" : "Backend Offline"}</span>
           </div>
 
-          <button
-            className="secondary"
-            onClick={() => setShowLlmModal(true)}
-            style={{
-              display: "inline-flex",
-              alignItems: "center",
-              gap: 6,
-              borderColor: llmConfig?.is_configured ? "#10b981" : "#7667f7",
-              background: llmConfig?.is_configured ? "rgba(16, 185, 129, 0.08)" : "transparent"
-            }}
-            title="Configure Real-Time AI Model & API Key (Gemini / ChatGPT)"
-          >
-            <Cpu size={16} color={llmConfig?.is_configured ? "#10b981" : "#8b7cff"} />
-            <span>{llmConfig?.is_configured ? (llmConfig.model || "AI Active") : "⚡ Connect AI Key"}</span>
-          </button>
-
           <button className="secondary" onClick={() => setDark(!dark)}>
             {dark ? <Sun size={18} /> : <Moon size={18} />}
           </button>
@@ -862,14 +577,6 @@ function App() {
           </button>
         </nav>
       </header>
-
-      {/* Real-time LLM Configuration Modal */}
-      <LLMConfigModal
-        isOpen={showLlmModal}
-        onClose={() => setShowLlmModal(false)}
-        onConfigSaved={(cfg) => setLlmConfig(cfg)}
-        currentConfig={llmConfig}
-      />
 
       {/* STEP 1: UPLOAD PAGE (ONLY upload shows here) */}
       {step === "upload" && (
@@ -943,27 +650,6 @@ function App() {
                 </div>
               )}
             </div>
-
-            {uploadSuccess && project && (
-              <div className="upload-success-card">
-                <div className="upload-success-info">
-                  <CheckCircle2 size={28} />
-                  <div>
-                    <h4>{project.original_name} uploaded successfully!</h4>
-                    <p>
-                      Detected technology: <strong>{availableTechs.join(", ")}</strong> · {project.file_count}{" "}
-                      {project.kind === "pdf" ? "pages" : "files"} · {project.line_count} lines ready.
-                    </p>
-                  </div>
-                </div>
-
-                <div className="upload-actions">
-                  <button onClick={() => setStep("knowledge")}>
-                    Next: Choose Knowledge Level <ArrowRight size={18} />
-                  </button>
-                </div>
-              </div>
-            )}
           </div>
         </main>
       )}
